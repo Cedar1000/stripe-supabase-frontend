@@ -1,5 +1,5 @@
 {
-  "name": "stripe-frontend",
+  "name": "family-tree",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -14,6 +14,7 @@
     "@cedar/adds-stuff": "npm:@jsr/cedar__adds-stuff@^0.1.1",
     "@cedar/bodmas": "npm:@jsr/cedar__bodmas@^0.1.2",
     "@cedar/capitalize": "npm:@jsr/cedar__capitalize@^0.1.0",
+    "@clerk/react": "^6.17.8",
     "@supabase/supabase-js": "^2.107.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
