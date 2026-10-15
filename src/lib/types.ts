@@ -16,7 +16,9 @@ export type Person = {
   id: string;
   family_id: string;
   parent_id: string | null;
-  name: string;
+  first_name: string;
+  /** Optional: '' when unknown. */
+  last_name: string;
   gender: Gender;
   photo_url: string | null;
   birth_date: string | null;
@@ -39,6 +41,9 @@ export type PublicTree = {
   family: { id: string; name: string; hide_living: boolean };
   people: Person[];
 };
+
+/** The signed-in user: a Clerk user, or the demo user while AUTH_DISABLED is on. */
+export type AuthSession = { user: { id: string; email?: string } };
 
 export type Profile = {
   id: string;

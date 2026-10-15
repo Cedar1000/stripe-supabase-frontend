@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { createFamily, createPerson, fetchInviteCode, renameFamily, uploadPhoto } from '../lib/api';
 import { datesFromDrafts, formatDate, type StoredDates } from '../lib/dates';
-import { clearPendingSetup, emptyDraft, newChild, savePendingSetup, type ChildDraft, type SetupDraft } from '../lib/setup';
+import { emptyDraft, newChild, type ChildDraft, type SetupDraft } from '../lib/setup';
+import { fullName } from '../lib/tree';
 import type { Gender } from '../lib/types';
-import { supabase } from '../utils/supabase';
 import { DateFields } from './DateFields';
 import { Avatar, Icon } from './ui';
 
 type Step = 'account' | 'family' | 'ancestor' | 'children' | 'review';
-type Phase = 'steps' | 'creating' | 'confirm-email' | 'done';
+type Phase = 'steps' | 'creating' | 'done';
 
 const STEP_LABELS: Record<Step, string> = {
   account: 'Your account',
@@ -18,7 +18,6 @@ const STEP_LABELS: Record<Step, string> = {
   review: 'Review',
 };
 
-const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? '';
 const surname = (name: string) => {
   const parts = name.trim().split(/\s+/);
   return parts.length > 1 ? parts[parts.length - 1] : '';
@@ -26,25 +25,24 @@ const surname = (name: string) => {
 
 export function SetupWizard({
   needsAccount,
-  simulateAccount,
-  initialDraft,
-  startAtReview = false,
+  accountName = '',
   onDone,
   onCancel,
 }: {
-  /** Show the sign-up step first (the organiser has no account yet). */
+  /**
+   * Demo mode: show a simulated sign-up step first. Real accounts are created with Clerk's
+   * sign-up screen before the wizard opens.
+   */
   needsAccount: boolean;
-  /** Demo mode: pretend to create the account instead of calling Supabase. */
-  simulateAccount: boolean;
-  initialDraft?: SetupDraft;
-  startAtReview?: boolean;
+  /** The signed-in user's name, used to suggest a family name. */
+  accountName?: string;
   /** Called with the new family's id when the organiser opens their tree. */
   onDone: (familyId: string) => void;
   onCancel?: () => void;
 }) {
-  const [draft, setDraft] = useState<SetupDraft>(() => initialDraft ?? emptyDraft());
+  const [draft, setDraft] = useState<SetupDraft>(emptyDraft);
   const [accountDone, setAccountDone] = useState(!needsAccount);
-  const [account, setAccount] = useState({ name: '', email: '', password: '' });
+  const [account, setAccount] = useState({ name: accountName, email: '', password: '' });
   const [photo, setPhoto] = useState<File | null>(null);
   const [phase, setPhase] = useState<Phase>('steps');
   const [error, setError] = useState('');
@@ -57,7 +55,7 @@ export function SetupWizard({
     list.push('review');
     return list;
   }, [needsAccount, draft.ancestor]);
-  const [step, setStep] = useState<Step>(startAtReview ? 'review' : needsAccount ? 'account' : 'family');
+  const [step, setStep] = useState<Step>(needsAccount ? 'account' : 'family');
   const stepIndex = steps.indexOf(step);
 
   const photoUrl = useMemo(() => (photo ? URL.createObjectURL(photo) : null), [photo]);
@@ -84,7 +82,7 @@ export function SetupWizard({
     setError('');
     setDraft((d) => ({ ...d, ...patch }));
   };
-  const kids = draft.children.filter((c) => c.name.trim());
+  const kids = draft.children.filter((c) => c.first_name.trim());
 
   // ---- Step validation + "Next" ------------------------------------------------------------
 
@@ -94,14 +92,14 @@ export function SetupWizard({
     if (step === 'account') return createAccount();
     if (step === 'family' && !draft.familyName.trim()) return setError('Give your family tree a name.');
     if (step === 'ancestor' && draft.ancestor) {
-      if (!draft.ancestor.name.trim()) return setError('Enter their name, or choose “Skip for now”.');
+      if (!draft.ancestor.first_name.trim()) return setError('Enter their first name, or choose “Skip for now”.');
       const dates = datesFromDrafts(draft.ancestor.birth, draft.ancestor.deceased, draft.ancestor.death);
       if ('error' in dates) return setError(dates.error);
     }
     if (step === 'children') {
       for (const c of kids) {
         const dates = datesFromDrafts(c.birth, false, c.birth);
-        if ('error' in dates) return setError(`${c.name}: ${dates.error}`);
+        if ('error' in dates) return setError(`${fullName(c)}: ${dates.error}`);
       }
     }
     if (step === 'review') return create();
@@ -112,21 +110,7 @@ export function SetupWizard({
     if (accountDone) return forward();
     setBusy(true);
     try {
-      if (simulateAccount) {
-        await new Promise((r) => setTimeout(r, 500));
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email: account.email,
-          password: account.password,
-          options: { data: { display_name: account.name.trim() }, emailRedirectTo: window.location.origin },
-        });
-        if (error) throw error;
-        if (!data.session) {
-          // Email confirmation is on: keep the draft and resume after they click the link.
-          setPhase('confirm-email');
-          return;
-        }
-      }
+      await new Promise((r) => setTimeout(r, 500));
       setAccountDone(true);
       if (!draft.familyName && surname(account.name)) update({ familyName: `The ${surname(account.name)} Family` });
       forward();
@@ -167,7 +151,8 @@ export function SetupWizard({
         const photoUrlSaved = photo ? await uploadPhoto(familyId, photo) : null;
         const created = await createPerson(familyId, {
           parent_id: null,
-          name: a.name.trim(),
+          first_name: a.first_name.trim(),
+          last_name: a.last_name.trim(),
           gender: a.gender,
           photo_url: photoUrlSaved,
           ...(datesFromDrafts(a.birth, a.deceased, a.death) as StoredDates),
@@ -183,7 +168,8 @@ export function SetupWizard({
           const c = kids[i];
           await createPerson(familyId, {
             parent_id: parentId,
-            name: c.name.trim(),
+            first_name: c.first_name.trim(),
+            last_name: c.last_name.trim(),
             gender: c.gender,
             photo_url: null,
             ...(datesFromDrafts(c.birth, false, c.birth) as StoredDates),
@@ -194,7 +180,6 @@ export function SetupWizard({
         }
       }
 
-      clearPendingSetup();
       setInviteCode(await fetchInviteCode(familyId).catch(() => null));
       setPhase('done');
     } catch (err) {
@@ -205,27 +190,10 @@ export function SetupWizard({
 
   // ---- Screens -----------------------------------------------------------------------------
 
-  if (phase === 'confirm-email') {
-    return (
-      <WizardShell top={top}>
-        <div className="wizard-card wizard-message">
-          <span className="wizard-icon">✉️</span>
-          <h1>Check your inbox</h1>
-          <p>
-            We sent a confirmation link to <strong>{account.email}</strong>. Open it on this device and we’ll pick up
-            your family setup right where you left off.
-          </p>
-          <SaveDraftOnMount draft={draft} />
-          <button type="button" className="button button-ghost" onClick={onCancel}>Back to sign in</button>
-        </div>
-      </WizardShell>
-    );
-  }
-
   if (phase === 'creating') {
     const items: { label: string; done: boolean }[] = [
       { label: `Creating ${draft.familyName.trim()}`, done: Boolean(progress.familyId) },
-      ...(draft.ancestor ? [{ label: `Adding ${draft.ancestor.name.trim()}`, done: Boolean(progress.ancestorId) }] : []),
+      ...(draft.ancestor ? [{ label: `Adding ${fullName(draft.ancestor)}`, done: Boolean(progress.ancestorId) }] : []),
       ...(draft.ancestor && kids.length
         ? [{ label: `Adding ${kids.length} ${kids.length === 1 ? 'child' : 'children'}`, done: progress.childrenDone >= kids.length }]
         : []),
@@ -278,7 +246,7 @@ export function SetupWizard({
         <p className="wizard-count">Step {stepIndex + 1} of {steps.length}</p>
 
         {step === 'account' && (
-          <AccountStep account={account} setAccount={setAccount} done={accountDone} simulate={simulateAccount} onSignIn={onCancel} />
+          <AccountStep account={account} setAccount={setAccount} done={accountDone} onSignIn={onCancel} />
         )}
 
         {step === 'family' && (
@@ -311,7 +279,7 @@ export function SetupWizard({
         )}
 
         {step === 'children' && draft.ancestor && (
-          <ChildrenStep parentName={firstName(draft.ancestor.name)} kids={draft.children} setKids={(children) => update({ children })} />
+          <ChildrenStep parentName={draft.ancestor.first_name.trim()} kids={draft.children} setKids={(children) => update({ children })} />
         )}
 
         {step === 'review' && (
@@ -364,11 +332,6 @@ function WizardShell({ top, aside, children }: { top: RefObject<HTMLDivElement |
   );
 }
 
-function SaveDraftOnMount({ draft }: { draft: SetupDraft }) {
-  useEffect(() => savePendingSetup(draft), [draft]);
-  return null;
-}
-
 function StepHeading({ title, lead }: { title: string; lead: string }) {
   return (
     <div className="step-heading">
@@ -391,11 +354,10 @@ function GenderToggle({ value, onChange, name }: { value: Gender; onChange: (g: 
   );
 }
 
-function AccountStep({ account, setAccount, done, simulate, onSignIn }: {
+function AccountStep({ account, setAccount, done, onSignIn }: {
   account: { name: string; email: string; password: string };
   setAccount: (a: { name: string; email: string; password: string }) => void;
   done: boolean;
-  simulate: boolean;
   onSignIn?: () => void;
 }) {
   if (done) {
@@ -420,7 +382,7 @@ function AccountStep({ account, setAccount, done, simulate, onSignIn }: {
         <input type="password" required minLength={6} value={account.password} onChange={(e) => setAccount({ ...account, password: e.target.value })} autoComplete="new-password" />
         <span className="hint">At least 6 characters.</span>
       </label>
-      {simulate && <p className="hint">Demo: no account is actually created.</p>}
+      <p className="hint">Demo: no account is actually created.</p>
       {onSignIn && (
         <p className="muted small">
           Already have an account? <button type="button" className="link" onClick={onSignIn}>Sign in instead</button>
@@ -447,7 +409,7 @@ function AncestorStep({ draft, update, photoUrl, setPhoto, onSkip }: {
         lead="Start with the oldest ancestor you know — a grandparent or great-grandparent. Everyone else will branch down from them."
       />
       <div className="photo-field">
-        <Avatar person={{ name: a.name || '?', photo_url: photoUrl, gender: a.gender, is_deceased: false }} size={72} />
+        <Avatar person={{ first_name: a.first_name, last_name: a.last_name, photo_url: photoUrl, gender: a.gender, is_deceased: false }} size={72} />
         <div className="photo-actions">
           <label className="button button-secondary">
             {photoUrl ? 'Change photo' : 'Add a photo'}
@@ -456,10 +418,16 @@ function AncestorStep({ draft, update, photoUrl, setPhoto, onSkip }: {
           {photoUrl && <button type="button" className="button button-ghost" onClick={() => setPhoto(null)}>Remove</button>}
         </div>
       </div>
-      <label>
-        Full name
-        <input value={a.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Emmanuel Okafor" autoFocus />
-      </label>
+      <div className="name-fields">
+        <label>
+          First name
+          <input value={a.first_name} onChange={(e) => set({ first_name: e.target.value })} placeholder="e.g. Emmanuel" autoComplete="off" autoFocus />
+        </label>
+        <label>
+          <span>Last name <span className="optional">optional</span></span>
+          <input value={a.last_name} onChange={(e) => set({ last_name: e.target.value })} placeholder="e.g. Okafor" autoComplete="off" />
+        </label>
+      </div>
       <fieldset>
         <legend>Sex</legend>
         <GenderToggle name="ancestor-gender" value={a.gender} onChange={(gender) => set({ gender })} />
@@ -491,8 +459,12 @@ function ChildrenStep({ parentName, kids, setKids }: { parentName: string; kids:
           <li key={k.key} className="child-row">
             <div className="child-row-top">
               <label className="child-name">
-                <span className="sr-only">Child {i + 1} name</span>
-                <input value={k.name} onChange={(e) => set(k.key, { name: e.target.value })} placeholder={`Child ${i + 1} name`} />
+                <span className="sr-only">Child {i + 1} first name</span>
+                <input value={k.first_name} onChange={(e) => set(k.key, { first_name: e.target.value })} placeholder={`Child ${i + 1} first name`} autoComplete="off" />
+              </label>
+              <label className="child-name">
+                <span className="sr-only">Child {i + 1} last name (optional)</span>
+                <input value={k.last_name} onChange={(e) => set(k.key, { last_name: e.target.value })} placeholder="Last name (optional)" autoComplete="off" />
               </label>
               <button type="button" className="icon-button" onClick={() => setKids(kids.filter((x) => x.key !== k.key))} aria-label={`Remove child ${i + 1}`}>
                 <Icon name="close" size={18} />
@@ -538,9 +510,9 @@ function ReviewStep({ draft, kids, photoUrl, jump, hasAccountStep }: {
           <dd>
             {a ? (
               <span className="review-person">
-                <Avatar person={{ name: a.name, photo_url: photoUrl, gender: a.gender, is_deceased: a.deceased }} size={36} />
+                <Avatar person={{ first_name: a.first_name, last_name: a.last_name, photo_url: photoUrl, gender: a.gender, is_deceased: a.deceased }} size={36} />
                 <span>
-                  <strong>{a.name.trim()}</strong>
+                  <strong>{fullName(a)}</strong>
                   {ancestorDates && !('error' in ancestorDates) && (
                     <small>
                       {formatDate(ancestorDates.birth_date, ancestorDates.birth_precision) || 'Birth unknown'}
@@ -558,7 +530,7 @@ function ReviewStep({ draft, kids, photoUrl, jump, hasAccountStep }: {
         {a && (
           <div>
             <dt>Children</dt>
-            <dd>{kids.length ? kids.map((k) => k.name.trim()).join(', ') : <span className="muted">None yet</span>}</dd>
+            <dd>{kids.length ? kids.map(fullName).join(', ') : <span className="muted">None yet</span>}</dd>
             <button type="button" className="link" onClick={() => jump('children')}>Edit</button>
           </div>
         )}
@@ -575,7 +547,7 @@ function ReviewStep({ draft, kids, photoUrl, jump, hasAccountStep }: {
 function TreePreview({ draft, photoUrl }: { draft: SetupDraft; photoUrl: string | null }) {
   const a = draft.ancestor;
   const kids = draft.children
-    .filter((c) => c.name.trim())
+    .filter((c) => c.first_name.trim())
     .map((c) => {
       const d = datesFromDrafts(c.birth, false, c.birth);
       return { ...c, sort: 'error' in d ? null : d.birth_date };
@@ -585,11 +557,11 @@ function TreePreview({ draft, photoUrl }: { draft: SetupDraft; photoUrl: string 
     <div className="tree-preview">
       <p className="preview-label">Preview</p>
       <h2>{draft.familyName.trim() || 'Your family'}</h2>
-      {a && a.name.trim() ? (
+      {a && a.first_name.trim() ? (
         <div className="preview-tree">
           <div className={`preview-card person-${a.gender}`}>
-            <Avatar person={{ name: a.name, photo_url: photoUrl, gender: a.gender, is_deceased: a.deceased }} size={44} />
-            <span>{a.name.trim()}</span>
+            <Avatar person={{ first_name: a.first_name, last_name: a.last_name, photo_url: photoUrl, gender: a.gender, is_deceased: a.deceased }} size={44} />
+            <span>{fullName(a)}</span>
           </div>
           {kids.length > 0 && (
             <>
@@ -597,8 +569,8 @@ function TreePreview({ draft, photoUrl }: { draft: SetupDraft; photoUrl: string 
               <div className="preview-children">
                 {kids.map((k) => (
                   <div key={k.key} className={`preview-card small person-${k.gender}`}>
-                    <Avatar person={{ name: k.name, photo_url: null, gender: k.gender, is_deceased: k.deceased }} size={30} />
-                    <span>{k.name.trim()}</span>
+                    <Avatar person={{ first_name: k.first_name, last_name: k.last_name, photo_url: null, gender: k.gender, is_deceased: k.deceased }} size={30} />
+                    <span>{fullName(k)}</span>
                   </div>
                 ))}
               </div>

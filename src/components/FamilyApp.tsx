@@ -1,11 +1,11 @@
-import type { Session } from '@supabase/supabase-js';
+import { UserButton } from '@clerk/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../lib/api';
 import { upcomingBirthdays } from '../lib/birthdays';
 import { conversationOf, loadSeen, saveSeen } from '../lib/chat';
 import { AUTH_DISABLED } from '../lib/demo';
-import { ancestorsOf, buildIndex, Permissions } from '../lib/tree';
-import type { AdminGrant, ChatMessage, Family, Member, Person, PersonInput } from '../lib/types';
+import { ancestorsOf, buildIndex, fullName, Permissions } from '../lib/tree';
+import type { AdminGrant, AuthSession, ChatMessage, Family, Member, Person, PersonInput } from '../lib/types';
 import { supabase } from '../utils/supabase';
 import { AdminDialog } from './AdminDialog';
 import { BirthdayPanel } from './BirthdayPanel';
@@ -39,7 +39,7 @@ export function FamilyApp({
   onAddFamily,
   onFamiliesChanged,
 }: {
-  session: Session;
+  session: AuthSession;
   family: Family;
   families: Family[];
   onSwitchFamily: (familyId: string) => void;
@@ -67,7 +67,6 @@ export function FamilyApp({
 
   const index = useMemo(() => buildIndex(people), [people]);
   const permissions = useMemo(() => new Permissions(me, admins, index), [me, admins, index]);
-  const myProfile = members.find((p) => p.id === me);
 
   const centerOn = useCallback((id: string) => setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 })), []);
 
@@ -153,7 +152,7 @@ export function FamilyApp({
       return;
     }
     new Notification('🎂 Birthday today', {
-      body: today.map((b) => `${b.person.name} turns ${b.turning}`).join('\n'),
+      body: today.map((b) => `${fullName(b.person)} turns ${b.turning}`).join('\n'),
     });
   }, [today]);
 
@@ -226,7 +225,7 @@ export function FamilyApp({
   };
 
   const removePerson = async (person: Person) => {
-    if (!confirm(`Delete ${person.name} from the tree? This cannot be undone.`)) return;
+    if (!confirm(`Delete ${fullName(person)} from the tree? This cannot be undone.`)) return;
     try {
       await api.deletePerson(person.id);
       setPeople((list) => list.filter((p) => p.id !== person.id));
@@ -279,9 +278,7 @@ export function FamilyApp({
           {AUTH_DISABLED ? (
             <span className="demo-pill" title="Login is turned off and changes are not saved. See src/lib/demo.ts.">Demo</span>
           ) : (
-            <button type="button" className="header-button" onClick={() => supabase.auth.signOut()} title={myProfile?.email}>
-              <Icon name="logout" /> <span>Sign out</span>
-            </button>
+            <UserButton />
           )}
         </div>
       </header>
@@ -292,7 +289,7 @@ export function FamilyApp({
             🎂 Today is {today.map((b, i) => (
               <span key={b.person.id}>
                 {i > 0 && (i === today.length - 1 ? ' and ' : ', ')}
-                <button type="button" className="link" onClick={() => reveal(b.person.id)}>{b.person.name}</button>’s
+                <button type="button" className="link" onClick={() => reveal(b.person.id)}>{fullName(b.person)}</button>’s
               </span>
             ))} birthday!
           </span>
@@ -412,7 +409,7 @@ export function FamilyApp({
 
       {dialog?.kind === 'add' && (
         <PersonForm
-          title={dialog.parentId ? `Add a child of ${index.byId.get(dialog.parentId)?.name ?? ''}` : 'Add a root ancestor'}
+          title={dialog.parentId ? `Add a child of ${fullName(index.byId.get(dialog.parentId))}` : 'Add a root ancestor'}
           familyId={familyId}
           parentId={dialog.parentId}
           onCancel={() => setDialog(null)}
@@ -421,7 +418,7 @@ export function FamilyApp({
       )}
       {dialog?.kind === 'edit' && (
         <PersonForm
-          title={`Edit ${dialog.person.name}`}
+          title={`Edit ${fullName(dialog.person)}`}
           initial={dialog.person}
           familyId={familyId}
           parentId={dialog.person.parent_id}

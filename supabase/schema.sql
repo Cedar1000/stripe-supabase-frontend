@@ -1,20 +1,32 @@
 -- Family Tree schema for Supabase (multi-tenant: one tenant per family).
 -- Run once in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 -- Functions, triggers and policies are safe to re-run. Tables are created only if
--- missing, so to upgrade from the earlier single-family schema, run the reset block first:
+-- missing, so to upgrade from an earlier schema (including the Supabase Auth one, whose
+-- user ids were uuids), run the reset block first:
 --
 --   drop table if exists public.chat_messages, public.tree_admins, public.people,
---     public.family_invites, public.family_members, public.families cascade;
+--     public.family_invites, public.family_members, public.families, public.user_profiles cascade;
+--   drop trigger if exists on_auth_user_created on auth.users;
+--
+-- Sign-in is handled by Clerk, connected as a Supabase third-party auth provider
+-- (Authentication -> Sign In / Providers -> Third-party auth -> Clerk). User ids are
+-- Clerk ids such as 'user_2abc...' taken from the session token's `sub` claim.
 
-create extension if not exists pgcrypto;
+-- The signed-in Clerk user's id, or null for anonymous requests.
+create or replace function public.requesting_user_id()
+returns text
+language sql stable
+as $$
+  select nullif(auth.jwt() ->> 'sub', '');
+$$;
 
 -- ---------------------------------------------------------------------------
 -- Tables
 -- ---------------------------------------------------------------------------
 
--- One row per login account (created automatically on sign-up).
+-- One row per login account (created by ensure_profile() after sign-in).
 create table if not exists public.user_profiles (
-  id uuid primary key references auth.users on delete cascade,
+  id text primary key,
   email text not null,
   display_name text not null default '',
   created_at timestamptz not null default now()
@@ -24,7 +36,7 @@ create table if not exists public.user_profiles (
 create table if not exists public.families (
   id uuid primary key default gen_random_uuid(),
   name text not null check (length(trim(name)) between 1 and 80),
-  created_by uuid default auth.uid() references public.user_profiles on delete set null,
+  created_by text default public.requesting_user_id() references public.user_profiles on delete set null,
   created_at timestamptz not null default now()
 );
 
@@ -36,7 +48,7 @@ alter table public.families add column if not exists public_hide_living boolean 
 -- Who can see a family's tree and chat.
 create table if not exists public.family_members (
   family_id uuid not null references public.families on delete cascade,
-  user_id uuid not null references public.user_profiles on delete cascade,
+  user_id text not null references public.user_profiles on delete cascade,
   joined_at timestamptz not null default now(),
   primary key (family_id, user_id)
 );
@@ -57,7 +69,8 @@ create table if not exists public.people (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references public.families on delete cascade,
   parent_id uuid references public.people on delete restrict,
-  name text not null check (length(trim(name)) > 0),
+  first_name text not null check (length(trim(first_name)) > 0),
+  last_name text not null default '', -- optional; '' when unknown
   gender text not null check (gender in ('male', 'female')),
   photo_url text,
   birth_date date,
@@ -66,7 +79,7 @@ create table if not exists public.people (
   death_date date,
   death_precision text check (death_precision in ('year', 'month', 'day')),
   bio text not null default '',
-  created_by uuid default auth.uid() references auth.users on delete set null,
+  created_by text default public.requesting_user_id() references public.user_profiles on delete set null,
   created_at timestamptz not null default now(),
   check ((birth_date is null) = (birth_precision is null)),
   check ((death_date is null) = (death_precision is null)),
@@ -80,9 +93,9 @@ create index if not exists people_parent_id_idx on public.people (parent_id);
 create table if not exists public.tree_admins (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references public.families on delete cascade,
-  user_id uuid not null references public.user_profiles on delete cascade,
+  user_id text not null references public.user_profiles on delete cascade,
   scope_person_id uuid references public.people on delete cascade,
-  granted_by uuid default auth.uid() references public.user_profiles on delete set null,
+  granted_by text default public.requesting_user_id() references public.user_profiles on delete set null,
   created_at timestamptz not null default now(),
   unique nulls not distinct (family_id, user_id, scope_person_id)
 );
@@ -92,8 +105,8 @@ create index if not exists tree_admins_family_idx on public.tree_admins (family_
 create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references public.families on delete cascade,
-  sender_id uuid not null default auth.uid() references public.user_profiles on delete cascade,
-  recipient_id uuid references public.user_profiles on delete cascade,
+  sender_id text not null default public.requesting_user_id() references public.user_profiles on delete cascade,
+  recipient_id text references public.user_profiles on delete cascade,
   body text not null check (length(trim(body)) between 1 and 4000),
   created_at timestamptz not null default now()
 );
@@ -107,14 +120,14 @@ create or replace function public.is_member(fid uuid)
 returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select exists (select 1 from family_members where family_id = fid and user_id = auth.uid());
+  select exists (select 1 from family_members where family_id = fid and user_id = public.requesting_user_id());
 $$;
 
 create or replace function public.is_family_admin(fid uuid)
 returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select exists (select 1 from tree_admins where family_id = fid and user_id = auth.uid());
+  select exists (select 1 from tree_admins where family_id = fid and user_id = public.requesting_user_id());
 $$;
 
 -- 1st-level admin of the family.
@@ -124,7 +137,7 @@ language sql stable security definer set search_path = public
 as $$
   select exists (
     select 1 from tree_admins
-    where family_id = fid and user_id = auth.uid() and scope_person_id is null
+    where family_id = fid and user_id = public.requesting_user_id() and scope_person_id is null
   );
 $$;
 
@@ -151,18 +164,20 @@ as $$
     from people p
     join tree_admins a on a.family_id = p.family_id
     where p.id = target
-      and a.user_id = auth.uid()
+      and a.user_id = public.requesting_user_id()
       and (a.scope_person_id is null or public.is_in_branch(a.scope_person_id, target))
   );
 $$;
 
--- Eight characters without look-alikes (no 0/O, 1/I/L).
+-- Eight characters without look-alikes (no 0/O, 1/I/L). Random bytes come from the built-in
+-- gen_random_uuid(), so no extension is needed; bytes 6 and 8 hold fixed version bits, so skip them.
 create or replace function public.random_invite_code()
 returns text
-language sql volatile
+language sql volatile set search_path = public
 as $$
-  select string_agg(substr('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 1 + (get_byte(b, i) % 31), 1), '')
-  from (select gen_random_bytes(8) as b) x, generate_series(0, 7) as i;
+  select string_agg(substr('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 1 + (get_byte(b, i) % 31), 1), '' order by n)
+  from (select uuid_send(gen_random_uuid()) as b) x,
+       unnest(array[0, 1, 2, 3, 4, 5, 7, 9]) with ordinality as t(i, n);
 $$;
 
 -- Onboarding: create a family; the caller becomes its member and 1st-level admin.
@@ -172,10 +187,10 @@ language plpgsql security definer set search_path = public
 as $$
 declare fid uuid;
 begin
-  if auth.uid() is null then raise exception 'Not signed in'; end if;
-  insert into families (name, created_by) values (trim(family_name), auth.uid()) returning id into fid;
-  insert into family_members (family_id, user_id) values (fid, auth.uid());
-  insert into tree_admins (family_id, user_id, scope_person_id, granted_by) values (fid, auth.uid(), null, auth.uid());
+  if public.requesting_user_id() is null then raise exception 'Not signed in'; end if;
+  insert into families (name, created_by) values (trim(family_name), public.requesting_user_id()) returning id into fid;
+  insert into family_members (family_id, user_id) values (fid, public.requesting_user_id());
+  insert into tree_admins (family_id, user_id, scope_person_id, granted_by) values (fid, public.requesting_user_id(), null, public.requesting_user_id());
   insert into family_invites (family_id, code) values (fid, random_invite_code());
   return fid;
 end;
@@ -188,10 +203,10 @@ language plpgsql security definer set search_path = public
 as $$
 declare fid uuid;
 begin
-  if auth.uid() is null then raise exception 'Not signed in'; end if;
+  if public.requesting_user_id() is null then raise exception 'Not signed in'; end if;
   select family_id into fid from family_invites where code = upper(trim(invite_code));
   if fid is null then raise exception 'That invite code is not valid'; end if;
-  insert into family_members (family_id, user_id) values (fid, auth.uid()) on conflict do nothing;
+  insert into family_members (family_id, user_id) values (fid, public.requesting_user_id()) on conflict do nothing;
   return fid;
 end;
 $$;
@@ -269,7 +284,8 @@ as $$
       select jsonb_agg(
         case when f.public_hide_living and not p.is_deceased then
           jsonb_build_object(
-            'id', p.id, 'family_id', p.family_id, 'parent_id', p.parent_id, 'name', p.name,
+            'id', p.id, 'family_id', p.family_id, 'parent_id', p.parent_id,
+            'first_name', p.first_name, 'last_name', p.last_name,
             'gender', p.gender, 'is_deceased', false, 'photo_url', null, 'bio', '',
             'birth_date', null, 'birth_precision', null, 'death_date', null, 'death_precision', null,
             'created_at', p.created_at, 'redacted', true, 'sibling_rank', p.sibling_rank
@@ -280,7 +296,7 @@ as $$
       from (
         -- sibling_rank keeps siblings in birth order even when their dates are hidden.
         select people.*, row_number() over (
-          partition by people.parent_id order by people.birth_date nulls last, people.name
+          partition by people.parent_id order by people.birth_date nulls last, people.first_name, people.last_name
         ) as sibling_rank
         from people where people.family_id = f.id
       ) p
@@ -292,32 +308,24 @@ $$;
 
 grant execute on function public.get_public_tree(text) to anon, authenticated;
 
--- Create a profile row whenever someone signs up.
-create or replace function public.handle_new_user()
-returns trigger
+-- Create or refresh the caller's profile from their Clerk session token. The app calls this
+-- after every sign-in; email and name come from the token's custom claims, not the client.
+create or replace function public.ensure_profile()
+returns void
 language plpgsql security definer set search_path = public
 as $$
+declare
+  uid text := public.requesting_user_id();
+  jwt_email text := coalesce(auth.jwt() ->> 'email', '');
+  jwt_name text := coalesce(nullif(trim(auth.jwt() ->> 'name'), ''), split_part(jwt_email, '@', 1));
 begin
-  insert into user_profiles (id, email, display_name)
-  values (
-    new.id,
-    new.email,
-    coalesce(nullif(new.raw_user_meta_data ->> 'display_name', ''), split_part(new.email, '@', 1))
-  )
-  on conflict (id) do nothing;
-  return new;
+  if uid is null then raise exception 'Not signed in'; end if;
+  insert into user_profiles (id, email, display_name) values (uid, jwt_email, jwt_name)
+  on conflict (id) do update
+    set email = excluded.email,
+        display_name = case when user_profiles.display_name = '' then excluded.display_name else user_profiles.display_name end;
 end;
 $$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
-
--- Backfill profiles for accounts that existed before this script ran.
-insert into public.user_profiles (id, email, display_name)
-select id, email, split_part(email, '@', 1) from auth.users
-on conflict (id) do nothing;
 
 -- Keep people inside their family and under the same parent.
 create or replace function public.people_guard()
@@ -379,15 +387,15 @@ drop policy if exists "profiles readable by relatives" on public.user_profiles;
 create policy "profiles readable by relatives" on public.user_profiles
   for select to authenticated
   using (
-    id = auth.uid() or exists (
+    id = public.requesting_user_id() or exists (
       select 1 from family_members mine join family_members theirs on theirs.family_id = mine.family_id
-      where mine.user_id = auth.uid() and theirs.user_id = user_profiles.id
+      where mine.user_id = public.requesting_user_id() and theirs.user_id = user_profiles.id
     )
   );
 
 drop policy if exists "profiles self update" on public.user_profiles;
 create policy "profiles self update" on public.user_profiles
-  for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+  for update to authenticated using (id = public.requesting_user_id()) with check (id = public.requesting_user_id());
 
 -- Families: members can read; 1st-level admins can rename. Creation goes through create_family().
 drop policy if exists "families readable by members" on public.families;
@@ -405,7 +413,7 @@ create policy "members readable by members" on public.family_members
 
 drop policy if exists "members removed by owners or self" on public.family_members;
 create policy "members removed by owners or self" on public.family_members
-  for delete to authenticated using (user_id = auth.uid() or public.is_family_owner(family_id));
+  for delete to authenticated using (user_id = public.requesting_user_id() or public.is_family_owner(family_id));
 
 drop policy if exists "invites readable by admins" on public.family_invites;
 create policy "invites readable by admins" on public.family_invites
@@ -471,14 +479,14 @@ create policy "chat read" on public.chat_messages
   for select to authenticated
   using (
     public.is_member(family_id)
-    and (recipient_id is null or sender_id = auth.uid() or recipient_id = auth.uid())
+    and (recipient_id is null or sender_id = public.requesting_user_id() or recipient_id = public.requesting_user_id())
   );
 
 drop policy if exists "chat send" on public.chat_messages;
 create policy "chat send" on public.chat_messages
   for insert to authenticated
   with check (
-    sender_id = auth.uid()
+    sender_id = public.requesting_user_id()
     and public.is_member(family_id)
     and (
       recipient_id is null
@@ -505,7 +513,7 @@ create policy "photos admin upload" on storage.objects
     bucket_id = 'photos'
     and exists (
       select 1 from public.tree_admins
-      where user_id = auth.uid() and family_id::text = (storage.foldername(name))[1]
+      where user_id = public.requesting_user_id() and family_id::text = (storage.foldername(name))[1]
     )
   );
 

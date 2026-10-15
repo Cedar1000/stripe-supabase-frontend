@@ -1,5 +1,6 @@
 import { ageOn, formatDate } from '../lib/dates';
 import type { Permissions, TreeIndex } from '../lib/tree';
+import { fullName } from '../lib/tree';
 import type { AdminGrant, Person, Profile } from '../lib/types';
 import { Avatar, Icon, StatusBadge } from './ui';
 
@@ -47,7 +48,7 @@ export function PersonPanel({
     .filter(Boolean);
 
   return (
-    <aside className="person-panel" aria-label={`Details for ${person.name}`}>
+    <aside className="person-panel" aria-label={`Details for ${fullName(person)}`}>
       <header className="panel-header">
         <span className="sheet-grabber" aria-hidden="true" />
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close details">
@@ -57,7 +58,7 @@ export function PersonPanel({
 
       <div className="panel-hero">
         <Avatar person={person} size={132} />
-        <h2>{person.name}</h2>
+        <h2>{fullName(person)}</h2>
         <StatusBadge deceased={person.is_deceased} />
       </div>
 
@@ -79,7 +80,7 @@ export function PersonPanel({
         {parent && (
           <div>
             <dt>{person.gender === 'male' ? 'Son of' : 'Daughter of'}</dt>
-            <dd><button type="button" className="link" onClick={() => onSelect(parent.id)}>{parent.name}</button></dd>
+            <dd><button type="button" className="link" onClick={() => onSelect(parent.id)}>{fullName(parent)}</button></dd>
           </div>
         )}
         {branchAdmins.length > 0 && (
@@ -139,7 +140,7 @@ export function PersonPanel({
                 <button type="button" className="mini-person" onClick={() => onSelect(c.id)}>
                   <Avatar person={c} size={36} />
                   <span>
-                    <strong>{c.name}</strong>
+                    <strong>{fullName(c)}</strong>
                     <small>{c.redacted ? 'Living' : formatDate(c.birth_date, c.birth_precision) || 'Birth date unknown'}</small>
                   </span>
                 </button>

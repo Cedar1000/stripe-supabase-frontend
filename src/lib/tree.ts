@@ -5,6 +5,12 @@ export type TreeIndex = {
   childrenOf: Map<string | null, Person[]>;
 };
 
+/** "First Last", or just the first name when the last name is unknown ('' for a missing person). */
+export function fullName(p: { first_name: string; last_name: string } | undefined) {
+  if (!p) return '';
+  return [p.first_name.trim(), p.last_name.trim()].filter(Boolean).join(' ');
+}
+
 /** Siblings are ordered by date of birth; unknown birth dates go last. */
 export function compareByBirth(a: Person, b: Person) {
   // Public views may withhold dates; the server supplies the order instead.
@@ -13,7 +19,7 @@ export function compareByBirth(a: Person, b: Person) {
     return a.birth_date < b.birth_date ? -1 : 1;
   }
   if (!a.birth_date !== !b.birth_date) return a.birth_date ? -1 : 1;
-  return a.name.localeCompare(b.name);
+  return fullName(a).localeCompare(fullName(b));
 }
 
 export function buildIndex(people: Person[]): TreeIndex {

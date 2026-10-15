@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { formatDate, matchesPartial, parseSearchDate } from '../lib/dates';
-import { compareByBirth, type TreeIndex } from '../lib/tree';
+import { compareByBirth, fullName, type TreeIndex } from '../lib/tree';
 import type { Person } from '../lib/types';
 import { Avatar, Modal, StatusBadge } from './ui';
 
@@ -19,7 +19,7 @@ export function SearchDialog({ index, onClose, onShow }: { index: TreeIndex; onC
     if (!hasQuery || badBorn || badDied) return [];
     const words = name.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return [...index.byId.values()]
-      .filter((p) => words.every((w) => p.name.toLowerCase().includes(w)))
+      .filter((p) => words.every((w) => fullName(p).toLowerCase().includes(w)))
       .filter((p) => !bornQuery || matchesPartial(p.birth_date, p.birth_precision, bornQuery))
       .filter((p) => !diedQuery || matchesPartial(p.death_date, p.death_precision, diedQuery))
       .sort(compareByBirth)
@@ -68,7 +68,7 @@ function SearchResult({ person, parent, onShow }: { person: Person; parent?: Per
             <Avatar person={parent} size={36} />
             <span>
               <small>Up link</small>
-              <strong>{parent.name}</strong>
+              <strong>{fullName(parent)}</strong>
             </span>
           </button>
         ) : (
@@ -78,7 +78,7 @@ function SearchResult({ person, parent, onShow }: { person: Person; parent?: Per
         <button type="button" className="result-card result-person" onClick={() => onShow(person.id)}>
           <Avatar person={person} size={52} />
           <span>
-            <strong>{person.name}</strong>
+            <strong>{fullName(person)}</strong>
             <small>
               {formatDate(person.birth_date, person.birth_precision) || 'Birth unknown'}
               {person.is_deceased && ` – ${formatDate(person.death_date, person.death_precision) || '?'}`}

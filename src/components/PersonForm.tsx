@@ -20,7 +20,8 @@ export function PersonForm({
   onCancel: () => void;
   onSubmit: (input: PersonInput) => Promise<void>;
 }) {
-  const [name, setName] = useState(initial?.name ?? '');
+  const [firstName, setFirstName] = useState(initial?.first_name ?? '');
+  const [lastName, setLastName] = useState(initial?.last_name ?? '');
   const [gender, setGender] = useState<Gender>(initial?.gender ?? 'male');
   const [birth, setBirth] = useState(draftFromStored(initial?.birth_date ?? null, initial?.birth_precision ?? null));
   const [deceased, setDeceased] = useState(initial?.is_deceased ?? false);
@@ -47,7 +48,8 @@ export function PersonForm({
       const photo = photoFile ? await uploadPhoto(familyId, photoFile) : photoUrl;
       await onSubmit({
         parent_id: parentId,
-        name: name.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         gender,
         photo_url: photo,
         ...dates,
@@ -66,7 +68,7 @@ export function PersonForm({
     <Modal title={title} onClose={onCancel}>
       <form className="form" onSubmit={submit}>
         <div className="photo-field">
-          <Avatar person={{ name: name || '?', photo_url: shown, gender, is_deceased: false }} size={88} />
+          <Avatar person={{ first_name: firstName, last_name: lastName, photo_url: shown, gender, is_deceased: false }} size={88} />
           <div className="photo-actions">
             <label className="button button-secondary">
               {shown ? 'Change picture' : 'Add picture'}
@@ -80,10 +82,16 @@ export function PersonForm({
           </div>
         </div>
 
-        <label>
-          Full name
-          <input required value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-        </label>
+        <div className="name-fields">
+          <label>
+            First name
+            <input required value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="off" autoFocus />
+          </label>
+          <label>
+            <span>Last name <span className="optional">optional</span></span>
+            <input value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="off" />
+          </label>
+        </div>
 
         <fieldset className="radio-row">
           <legend>Sex</legend>

@@ -1,16 +1,16 @@
-import type { Session } from '@supabase/supabase-js';
 import { toStored, type PartialDate } from './dates';
-import type { AdminGrant, ChatMessage, Family, Gender, Person, Profile, PublicTree } from './types';
+import { fullName } from './tree';
+import type { AdminGrant, AuthSession, ChatMessage, Family, Gender, Person, Profile, PublicTree } from './types';
 
 /**
  * While true the app skips login and runs on a sample database kept in this browser
- * (open /?reset-demo to start over). Set to false to use Supabase.
+ * (open /?reset-demo to start over). Set to false to use Clerk sign-in and Supabase.
  */
-export const AUTH_DISABLED = true;
+export const AUTH_DISABLED = false;
 
 export const DEMO_USER_ID = 'demo-user';
 
-export const demoSession = { user: { id: DEMO_USER_ID, email: 'you@example.com' } } as Session;
+export const demoSession: AuthSession = { user: { id: DEMO_USER_ID, email: 'you@example.com' } };
 
 /** Invite code for the seeded family the demo user hasn't joined yet. */
 export const DEMO_JOIN_CODE = 'MENSAH24';
@@ -40,11 +40,14 @@ function person(
 ): Person {
   const b = born && toStored(born);
   const d = opts.died && opts.died !== 'unknown' ? toStored(opts.died) : null;
+  // "Grace Okafor-Bello" -> first "Grace", last "Okafor-Bello".
+  const [first, ...rest] = name.split(' ');
   return {
     id: `demo-person-${seq++}`,
     family_id: familyId,
     parent_id: parent?.id ?? null,
-    name,
+    first_name: first,
+    last_name: rest.join(' '),
     gender,
     photo_url: opts.photo ?? null,
     birth_date: b?.date ?? null,
@@ -120,7 +123,7 @@ const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString(
 
 function seed() {
   const people = [...seedOkafor(), ...seedMensah()];
-  const graceId = people.find((p) => p.name === 'Grace Okafor-Bello')!.id;
+  const graceId = people.find((p) => p.first_name === 'Grace' && p.last_name === 'Okafor-Bello')!.id;
   const grant = (family_id: string, user_id: string, scope_person_id: string | null): AdminGrant => ({
     id: demoId(), family_id, user_id, scope_person_id, granted_by: user_id, created_at: now(),
   });
@@ -169,7 +172,7 @@ function seed() {
 
 type DemoDb = ReturnType<typeof seed>;
 
-const STORE_KEY = 'family-tree:demo-db:v1';
+const STORE_KEY = 'family-tree:demo-db:v2';
 
 /** Saved demo data from this browser, unless ?reset-demo is in the URL. */
 function loadSaved(): DemoDb | null {
@@ -213,7 +216,7 @@ export function demoPublicTree(slug: string): PublicTree | null {
   for (const p of people) byParent.set(p.parent_id, [...(byParent.get(p.parent_id) ?? []), p]);
   for (const siblings of byParent.values()) {
     siblings
-      .sort((a, b) => (a.birth_date ?? '9999').localeCompare(b.birth_date ?? '9999') || a.name.localeCompare(b.name))
+      .sort((a, b) => (a.birth_date ?? '9999').localeCompare(b.birth_date ?? '9999') || fullName(a).localeCompare(fullName(b)))
       .forEach((p, i) => rank.set(p.id, i + 1));
   }
   return {

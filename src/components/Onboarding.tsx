@@ -1,7 +1,7 @@
+import { SignOutButton } from '@clerk/react';
 import { useState, type FormEvent } from 'react';
 import { joinFamily } from '../lib/api';
 import { AUTH_DISABLED, DEMO_JOIN_CODE } from '../lib/demo';
-import { supabase } from '../utils/supabase';
 import { Icon } from './ui';
 
 export function Onboarding({
@@ -99,9 +99,11 @@ export function Onboarding({
             <a className="button button-ghost" href="?setup">Demo: preview the full sign-up flow</a>
           )}
           {!AUTH_DISABLED && (
-            <button type="button" className="button button-ghost" onClick={() => supabase.auth.signOut()}>
-              <Icon name="logout" size={16} /> Sign out
-            </button>
+            <SignOutButton>
+              <button type="button" className="button button-ghost">
+                <Icon name="logout" size={16} /> Sign out
+              </button>
+            </SignOutButton>
           )}
         </div>
       </div>

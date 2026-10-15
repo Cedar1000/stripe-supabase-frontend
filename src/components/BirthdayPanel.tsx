@@ -1,5 +1,6 @@
 import { monthOnlyThisMonth, upcomingBirthdays } from '../lib/birthdays';
 import { MONTHS } from '../lib/dates';
+import { fullName } from '../lib/tree';
 import type { Person } from '../lib/types';
 import { Avatar, Modal } from './ui';
 
@@ -25,7 +26,7 @@ export function BirthdayPanel({ people, onClose, onShow }: { people: Person[]; o
             <button type="button" className="mini-person" onClick={() => onShow(person.id)}>
               <Avatar person={person} size={44} />
               <span>
-                <strong>{person.name}</strong>
+                <strong>{fullName(person)}</strong>
                 <small>{when(inDays)} · turning {turning}</small>
               </span>
             </button>
@@ -40,7 +41,7 @@ export function BirthdayPanel({ people, onClose, onShow }: { people: Person[]; o
               <li key={p.id}>
                 <button type="button" className="mini-person" onClick={() => onShow(p.id)}>
                   <Avatar person={p} size={44} />
-                  <span><strong>{p.name}</strong><small>Exact day not recorded</small></span>
+                  <span><strong>{fullName(p)}</strong><small>Exact day not recorded</small></span>
                 </button>
               </li>
             ))}

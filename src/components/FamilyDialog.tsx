@@ -1,9 +1,9 @@
+import { SignOutButton } from '@clerk/react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { fetchInviteCode, publicTreeUrl, regenerateInvite, regeneratePublicLink, removeMember, renameFamily, setPublicSharing } from '../lib/api';
 import { AUTH_DISABLED } from '../lib/demo';
 import type { Permissions } from '../lib/tree';
 import type { AdminGrant, Family, Member } from '../lib/types';
-import { supabase } from '../utils/supabase';
 import { Icon, Modal } from './ui';
 
 export function FamilyDialog({
@@ -193,9 +193,11 @@ export function FamilyDialog({
           Leave family
         </button>
         {!AUTH_DISABLED && (
-          <button type="button" className="button button-ghost" onClick={() => supabase.auth.signOut()}>
-            <Icon name="logout" size={16} /> Sign out
-          </button>
+          <SignOutButton>
+            <button type="button" className="button button-ghost">
+              <Icon name="logout" size={16} /> Sign out
+            </button>
+          </SignOutButton>
         )}
       </div>
       {lastOwner && <p className="hint">You’re the only 1st-level admin. Appoint another before leaving.</p>}

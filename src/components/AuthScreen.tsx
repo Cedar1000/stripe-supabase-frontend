@@ -1,56 +1,25 @@
-import { useState, type FormEvent } from 'react';
-import { supabase } from '../utils/supabase';
+import { SignIn, SignUp } from '@clerk/react';
 import { Icon } from './ui';
 
-type Mode = 'signin' | 'signup' | 'link';
+/** The current page without Clerk's #/ routes, so invite (?join=) and setup links survive sign-in. */
+function currentUrl(withSetup = false) {
+  const url = new URL(window.location.href);
+  url.hash = '';
+  if (withSetup) url.searchParams.set('setup', '');
+  return url.toString();
+}
 
+// Clerk's form fills the auth card instead of drawing a second card inside it.
+const embedded = {
+  elements: {
+    rootBox: { width: '100%' },
+    cardBox: { width: '100%', boxShadow: 'none', border: 'none' },
+  },
+};
+
+/** Signed-out home: Clerk sign-in (email or Google; new users can sign up from here too). */
 export function AuthScreen({ onStartSetup }: { onStartSetup: () => void }) {
-  const [mode, setMode] = useState<Mode>('signin');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-
-  const switchMode = (next: Mode) => {
-    setMode(next);
-    setError('');
-    setNotice('');
-  };
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError('');
-    setNotice('');
-    try {
-      if (mode === 'signin') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-      } else if (mode === 'signup') {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { display_name: name.trim() }, emailRedirectTo: window.location.origin },
-        });
-        if (error) throw error;
-        if (!data.session) setNotice('Check your email to confirm your account, then sign in.');
-      } else {
-        const { error } = await supabase.auth.signInWithOtp({
-          email,
-          options: { emailRedirectTo: window.location.origin },
-        });
-        if (error) throw error;
-        setNotice('We sent a sign-in link to your email.');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  const back = currentUrl();
   return (
     <div className="auth-page">
       <div className="auth-card">
@@ -72,43 +41,31 @@ export function AuthScreen({ onStartSetup }: { onStartSetup: () => void }) {
 
         <div className="auth-divider"><span>or, if you have an account or invite</span></div>
 
-        <div className="segmented" role="tablist">
-          <button type="button" role="tab" aria-selected={mode === 'signin'} onClick={() => switchMode('signin')}>Sign in</button>
-          <button type="button" role="tab" aria-selected={mode === 'signup'} onClick={() => switchMode('signup')}>Sign up</button>
-          <button type="button" role="tab" aria-selected={mode === 'link'} onClick={() => switchMode('link')}>Email link</button>
+        <SignIn appearance={embedded} routing="hash" withSignUp forceRedirectUrl={back} signUpForceRedirectUrl={back} />
+      </div>
+    </div>
+  );
+}
+
+/** First step of family setup for signed-out visitors; the wizard opens once they're signed up. */
+export function SetupSignUp({ onCancel }: { onCancel: () => void }) {
+  const next = currentUrl(true);
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <span className="brand-mark"><Icon name="tree" size={26} /></span>
+          <div>
+            <h1>Set up your family’s tree</h1>
+            <p>Create your account first. You’ll be the family’s first administrator.</p>
+          </div>
         </div>
 
-        <form className="form" onSubmit={submit}>
-          {mode === 'signup' && (
-            <label>
-              Your name
-              <input required value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
-            </label>
-          )}
-          <label>
-            Email
-            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
-          </label>
-          {mode !== 'link' && (
-            <label>
-              Password
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-              />
-            </label>
-          )}
-          {mode === 'link' && <p className="muted">No password needed — we’ll email you a one-time sign-in link.</p>}
-          {error && <p className="form-error">{error}</p>}
-          {notice && <p className="form-notice">{notice}</p>}
-          <button className="button button-primary" type="submit" disabled={busy}>
-            {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Send link'}
-          </button>
-        </form>
+        <SignUp appearance={embedded} routing="hash" forceRedirectUrl={next} signInForceRedirectUrl={next} />
+
+        <p className="muted small">
+          Already have an account? <button type="button" className="link" onClick={onCancel}>Sign in instead</button>
+        </p>
       </div>
     </div>
   );

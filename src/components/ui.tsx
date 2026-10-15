@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
+import { fullName } from '../lib/tree';
 import type { Person } from '../lib/types';
 
 export function Modal({
@@ -42,13 +43,13 @@ function initials(name: string) {
     .join('');
 }
 
-export function Avatar({ person, size = 64 }: { person: Pick<Person, 'name' | 'photo_url' | 'gender' | 'is_deceased'>; size?: number }) {
+export function Avatar({ person, size = 64 }: { person: Pick<Person, 'first_name' | 'last_name' | 'photo_url' | 'gender' | 'is_deceased'>; size?: number }) {
   const className = `avatar avatar-${person.gender} ${person.is_deceased ? 'avatar-deceased' : ''}`;
   return person.photo_url ? (
     <img className={className} src={person.photo_url} alt="" width={size} height={size} style={{ width: size, height: size }} />
   ) : (
     <span className={className} style={{ width: size, height: size, fontSize: size * 0.36 }} aria-hidden="true">
-      {initials(person.name)}
+      {initials(fullName(person) || '?')}
     </span>
   );
 }

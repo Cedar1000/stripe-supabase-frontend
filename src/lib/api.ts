@@ -13,6 +13,14 @@ function check<T>(result: { data: T | null; error: { message: string } | null })
   return result.data as T;
 }
 
+// ---- Profile -------------------------------------------------------------------------
+
+/** Creates or refreshes the signed-in user's profile row from their Clerk session token. */
+export async function ensureProfile() {
+  if (DEMO) return;
+  check(await supabase.rpc('ensure_profile'));
+}
+
 // ---- Families (tenants) ---------------------------------------------------------------
 
 export async function fetchMyFamilies() {

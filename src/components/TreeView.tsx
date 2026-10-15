@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { flushSync } from 'react-dom';
 import { formatDate } from '../lib/dates';
 import type { TreeIndex } from '../lib/tree';
+import { fullName } from '../lib/tree';
 import type { Person } from '../lib/types';
 import { Avatar, Icon } from './ui';
 
@@ -244,7 +245,7 @@ function PersonCard({
           onDoubleTap(person.id);
         }
       }}
-      aria-label={`${person.name}, ${person.is_deceased ? 'deceased' : 'living'}${born ? `, born ${born}` : ''}${childCount ? `, ${childCount} children` : ''}`}
+      aria-label={`${fullName(person)}, ${person.is_deceased ? 'deceased' : 'living'}${born ? `, born ${born}` : ''}${childCount ? `, ${childCount} children` : ''}`}
       aria-expanded={childCount ? isOpen : undefined}
     >
       <span className="card-photo">
@@ -253,7 +254,7 @@ function PersonCard({
           {person.is_deceased ? '†' : ''}
         </span>
       </span>
-      <span className="card-name">{person.name}</span>
+      <span className="card-name">{fullName(person)}</span>
       <span className="card-years">
         {person.is_deceased ? `${birthYear || '?'} – ${deathYear || '?'}` : birthYear ? `b. ${birthYear}` : ' '}
       </span>

@@ -923,6 +923,18 @@ span.avatar-female {
 
 .child-name {
   flex: 1;
+  min-width: 0;
+}
+
+/* First + last name side by side. */
+.name-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.name-fields > label {
+  min-width: 0;
 }
 
 .form .child-name input {

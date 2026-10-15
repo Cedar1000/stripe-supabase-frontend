@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { grantAdmin, revokeAdmin } from '../lib/api';
 import type { Permissions, TreeIndex } from '../lib/tree';
+import { fullName } from '../lib/tree';
 import type { AdminGrant, Profile } from '../lib/types';
 import { Modal } from './ui';
 
@@ -41,7 +42,7 @@ export function AdminDialog({
     () =>
       [...index.byId.values()]
         .filter((p) => permissions.canEdit(p.id))
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .sort((a, b) => fullName(a).localeCompare(fullName(b))),
     [index, permissions],
   );
 
@@ -92,7 +93,7 @@ export function AdminDialog({
           <select required value={scope} onChange={(e) => setScope(e.target.value)}>
             {permissions.isSuperAdmin && <option value={WHOLE_TREE}>The whole tree (1st-level admin)</option>}
             {scopeOptions.map((p) => (
-              <option key={p.id} value={p.id}>Branch of {p.name} (2nd-level admin)</option>
+              <option key={p.id} value={p.id}>Branch of {fullName(p)} (2nd-level admin)</option>
             ))}
           </select>
         </label>
@@ -118,7 +119,7 @@ export function AdminDialog({
               <small>
                 {g.scope_person_id === null
                   ? '1st level · whole tree'
-                  : `2nd level · branch of ${index.byId.get(g.scope_person_id)?.name ?? 'unknown'}`}
+                  : `2nd level · branch of ${fullName(index.byId.get(g.scope_person_id)) || 'unknown'}`}
               </small>
             </span>
             <button type="button" className="button button-ghost" onClick={() => revoke(g)}>Remove</button>
